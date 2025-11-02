@@ -1,0 +1,63 @@
+name: Build Vedic Kundali APK (Debug)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    name: Build Debug APK
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Step 2: Set up Java JDK 17 (required for Gradle)
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # Step 3: Give permission to Gradle wrapper (important fix)
+      - name: Grant execute permission for gradlew
+        run: |
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+          else
+            echo "gradlew not found in root. Searching..."
+            WRAPPER_PATH=$(find . -name gradlew | head -n 1)
+            if [ -z "$WRAPPER_PATH" ]; then
+              echo "❌ Gradle wrapper missing! Please commit gradlew and gradle/wrapper files."
+              exit 1
+            fi
+            chmod +x "$WRAPPER_PATH"
+            echo "Found gradlew at $WRAPPER_PATH"
+            echo "$WRAPPER_PATH" > wrapper_path.txt
+          fi
+
+      # Step 4: Build Debug APK (auto-detect wrapper path)
+      - name: Build Debug APK
+        run: |
+          WRAPPER_PATH=$(cat wrapper_path.txt 2>/dev/null || echo "./gradlew")
+          echo "Using wrapper: $WRAPPER_PATH"
+          $WRAPPER_PATH clean assembleDebug --no-daemon --stacktrace
+
+      # Step 5: Find and zip APKs
+      - name: Zip APK files
+        run: |
+          mkdir -p build_artifacts
+          find . -type f -path "*/build/outputs/apk/debug/*.apk" -exec cp {} build_artifacts/ \;
+          cd build_artifacts
+          zip -r ../minutesvedic-kundali-apk.zip ./*.apk
+          cd ..
+
+      # Step 6: Upload as workflow artifact (you’ll download it from Actions → Artifacts)
+      - name: Upload APK as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: minutesvedic-kundali-apk
+          path: minutesvedic-kundali-apk.zip
