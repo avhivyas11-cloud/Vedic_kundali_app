@@ -1,0 +1,5 @@
+NOTES:
+- This is a demo project skeleton for a Vedic Kundali Android app.
+- It intentionally excludes Swiss Ephemeris binaries and ephemeris files due to licensing and size.
+- To enable full precision, download Swiss Ephemeris Java port (swisseph.jar) and place it in app/libs/,
+  and put the ephemeris files in app/src/main/assets/ephe/.
