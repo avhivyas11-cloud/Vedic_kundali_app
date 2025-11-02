@@ -1,0 +1,102 @@
+name: Build Android APK & Zip
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    name: Build APK (Release)
+    runs-on: ubuntu-latest
+    env:
+      JAVA_HOME_17_X64: /usr/lib/jvm/adoptopenjdk-17-hotspot-amd64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*','**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x ./gradlew
+
+      # Optional: If you sign with a keystore secret, decode it to file
+      - name: Restore Android keystore from secret (optional)
+        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        run: |
+          echo "Decoding KEYSTORE_BASE64 -> keystore.jks"
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > ./keystore.jks
+        # Required secrets if using signing:
+        # KEYSTORE_BASE64 = base64 encoded keystore binary
+        # KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD
+
+      - name: Set up Android SDK (needed for some Gradle builds)
+        uses: android-actions/setup-android@v2
+        with:
+          api-level: 33
+          build-tools: "33.0.2"
+
+      - name: Prepare gradle.properties (inject signing config - optional)
+        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        run: |
+          echo "ANDROID_KEYSTORE=keystore.jks" >> $GITHUB_WORKSPACE/gradle.properties
+          echo "ANDROID_KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> $GITHUB_WORKSPACE/gradle.properties
+          echo "ANDROID_KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> $GITHUB_WORKSPACE/gradle.properties
+          echo "ANDROID_KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_WORKSPACE/gradle.properties
+        # Note: configure your app's build.gradle to read these gradle.properties vars.
+
+      - name: Build release APK
+        run: |
+          # Clean then assemble release
+          ./gradlew clean assembleRelease --no-daemon --stacktrace
+
+      - name: Locate produced APK(s)
+        run: |
+          echo "Listing outputs"
+          find . -type f -path "*/app/build/outputs/apk/*/release/*.apk" -print || true
+
+      - name: Create zip with APK
+        run: |
+          mkdir -p build_artifacts
+          # Collect all release APKs (module may differ, update path if needed)
+          APK_PATHS=$(find . -type f -path "*/app/build/outputs/apk/*/release/*.apk")
+          if [ -z "$APK_PATHS" ]; then
+            echo "No APK found — failing."
+            exit 1
+          fi
+          # Copy APK(s) to artifacts folder
+          for f in $APK_PATHS; do cp "$f" build_artifacts/; done
+          # Create zip
+          zip -j minutesvedic-kundali-apk.zip build_artifacts/*.apk
+          ls -lah minutesvedic-kundali-apk.zip
+
+      - name: Upload zip as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: minutesvedic-kundali-apk
+          path: minutesvedic-kundali-apk.zip
+
+      - name: Create GitHub Release and upload zip (auto tag: by-date) 
+        uses: ncipollo/release-action@v1
+        with:
+          tag: build-${{ github.run_number }}
+          name: minutesvedic-kundali-apk-${{ github.run_number }}
+          body: "Automated build: minutesvedic-kundali-apk.zip"
+          artifacts: minutesvedic-kundali-apk.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
